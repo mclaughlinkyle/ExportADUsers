@@ -80,6 +80,8 @@ Function CreatePropertiesSelector([String]$PropSelector)
     Export users with properties from Active Directory as a CSV file.
 
     .PARAMS
+    $Domain                  - Domain of the organization (Ex: 'com.org.local')
+    
     $OrgUnit                 - Export users from this organization unit
 
     $IncludeNestedOrgUnits   - If $true: include users from an other org units nested within $OrgUnit
@@ -91,10 +93,19 @@ Function CreatePropertiesSelector([String]$PropSelector)
     $LogVerbosity            - Verbosity of the exported CSV file. (how many properties are included)
                                See CreatePropertiesSelector function
 #>
-Function ExportOUUsers([String]$OrgUnit, [Boolean]$IncludeNestedOrgUnits, [Boolean]$FilterOnlyActiveUsers, [String]$LogVerbosity)
+Function ExportOUUsers([String]$Domain, [String]$OrgUnit, [Boolean]$IncludeNestedOrgUnits, [Boolean]$FilterOnlyActiveUsers, [String]$LogVerbosity)
 {
+    # Format DC text for SearchBaseFilter
+    $DomainArr = $Domain.Split('.')
+    [String]$DomainFormatted = ""
+    ForEach($Sub in $DomainArr)
+    {
+        $DomainFormatted += "DC=$Sub,"
+    }
+    $DomainFormatted = $DomainFormatted.Substring(0, $DomainFormatted.Length - 1)
+
     # Base search filter, for domain and org unit
-    [String]$SearchBaseFilter = "OU=$OrgUnit,DC=com,DC=org,DC=local"
+    [String]$SearchBaseFilter = "OU=$OrgUnit,$DomainFormatted"
 
     [Int]$DaysInactive = 180
     [DateTime]$Time = (Get-Date).AddDays(-($DaysInactive))  
@@ -109,7 +120,6 @@ Function ExportOUUsers([String]$OrgUnit, [Boolean]$IncludeNestedOrgUnits, [Boole
     If (-Not(Test-Path -Path $OUExportsDir))
     { 
         MkDir $OUExportsDir
-        #Write "Created directory '$OUExportsDir'."
     }
 
     # Date variable used in CSV file name
