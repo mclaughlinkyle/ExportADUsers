@@ -16,32 +16,22 @@ Import-Module ActiveDirectory
     Build string of properties to select from ADUser object when exporting.
 
     .PARAMS
-    $PropSelector can be: ALL, VERBOSE, NORMAL, MINIMAL,
-                          or you can enter specific properties comma separated (Example: 'CanonicalName, Name, LastLogonDate')
+    $PropertiesSelection can be: ALL, VERBOSE, NORMAL, MINIMAL,
+                                 or you can enter specific properties comma separated (Example: 'CanonicalName, Name, LastLogonDate')
 #>
-Function CreatePropertiesSelector([String]$PropSelector)
+function Get-PropertiesString([string]$PropertiesSelection)
 {
-    If ($PropSelector -IEQ 'ALL')
+    switch ($PropertiesSelection)
     {
-        Return '*'
-    }
-    ElseIf ($PropSelector -IEQ 'VERBOSE')
-    {
-        Return 'Created', 'ObjectClass', 'ObjectGUID', 'objectSid', 'MemberOf', 'CanonicalName', 'SAMAccountName', 'Name', 'DisplayName', 'GivenName', 'Initials', 'OtherName', 'Description', 'Title', 'Enabled', 'LockedOut', 'HomeDirectory', 'HomeDrive', 'ScriptPath', 'PasswordExpired', 'PasswordNeverExpires', 'PasswordNotRequired', 'CannotChangePassword', 'lastLogoff', 'lastLogon', 'LastLogonDate', 'lastLogonTimestamp'
-    }
-    ElseIf ($PropSelector -IEQ 'NORMAL')
-    {
-        Return 'Created', 'SAMAccountName', 'Name', 'DisplayName', 'Description', 'LastLogonDate'
-    }
-    ElseIf ($PropSelector -IEQ 'MINIMAL')
-    {
-        Return 'SAMAccountName', 'Name', 'LastLogonDate'
-    }
-    Else
-    {
-        # Split custom properties into array
-        $PropSelector = $PropSelector -Replace '\s',''
-        Return $PropSelector -Split ','
+        'ALL' { '*' }
+        'VERBOSE' { 'Created', 'ObjectClass', 'ObjectGUID', 'objectSid', 'MemberOf', 'CanonicalName', 'SAMAccountName', 'Name', 'DisplayName', 'GivenName', 'Initials', 'OtherName', 'Description', 'Title', 'Enabled', 'LockedOut', 'HomeDirectory', 'HomeDrive', 'ScriptPath', 'PasswordExpired', 'PasswordNeverExpires', 'PasswordNotRequired', 'CannotChangePassword', 'lastLogoff', 'lastLogon', 'LastLogonDate', 'lastLogonTimestamp'; break }
+        'NORMAL' { 'Created', 'SAMAccountName', 'Name', 'DisplayName', 'Description', 'LastLogonDate' }
+        'MINIMAL' { 'SAMAccountName', 'Name', 'LastLogonDate' }
+        default { 
+            # Split custom properties into array
+            $PropertiesSelection = $PropertiesSelection.Replace('\s', '')
+            return $PropertiesSelection.Split(',')
+        }
     }
 }
 
@@ -50,66 +40,71 @@ Function CreatePropertiesSelector([String]$PropSelector)
     Export users with properties from Active Directory as a CSV file.
 
     .PARAMS
-    $Domain                  - Domain of the organization (Ex: 'com.org.local')
+    $ServerDomain                  - Domain of the organization (Ex: 'com.org.local')
 
-    $OrgUnit                 - Export users from this organization unit
+    $OrganizationUnit              - Export users from this organization unit
 
-    $IncludeNestedOrgUnits   - If $true: include users from an other org units nested within $OrgUnit
-                             - If $false: include only users from specified $OrgUnit
+    $SearchSubOrgUnits             - If $true: include users from an other org units nested within $OrganizationUnit
+                                   - If $false: include only users from specified $OrganizationUnit
 
-    $FilterOnlyActiveUsers   - If $true: only include 'Enabled' accounts, and accounts with a last logon less than 180 days ago
-                             - If $false: include all users
+    $OnlyActiveUsers               - If $true: only include 'Enabled' accounts, and accounts with a last logon less than 180 days ago
+                                   - If $false: include all users
 
-    $LogVerbosity            - Verbosity of the exported CSV file. (how many properties are included)
-                               See CreatePropertiesSelector function
+    $LogVerbosity                  - Verbosity of the exported CSV file. (how many properties are included)
+                                      See Get-PropertiesString function
 #>
-Function ExportOUUsers([String]$Domain, [String]$OrgUnit, [Boolean]$IncludeNestedOrgUnits, [Boolean]$FilterOnlyActiveUsers, [String]$LogVerbosity)
+function Export-ADUsersCSV([string]$ServerDomain, [string]$OrganizationUnit, [boolean]$SearchSubOrgUnits, [boolean]$OnlyActiveUsers, [string]$LogVerbosity)
 {
     # Format DC text for SearchBaseFilter
-    $DomainArr = $Domain.Split('.')
-    [String]$DomainFormatted = ""
-    ForEach ($Sub in $DomainArr)
+    $domainArr = $ServerDomain.Split('.')
+    [string]$domainFormatted = ""
+    foreach ($substr in $domainArr)
     {
-        $DomainFormatted += "DC=$Sub,"
+        $domainFormatted += "DC=$substr,"
     }
 
     # Only remove extra comma from above foreach loop if the domain was delimited. 
     # (Example: If domain was 'com.org.local' and not just 'org')
-    If ($DomainArr.Length -GT 0) 
+    if ($domainArr.Length -gt 0) 
     {
-        $DomainFormatted = $DomainFormatted.Substring(0, $DomainFormatted.Length - 1)
+        $domainFormatted = $domainFormatted.Substring(0, $domainFormatted.Length - 1)
     }
     
     # Base search filter, for domain and org unit
-    [String]$SearchBaseFilter = "OU=$OrgUnit,$DomainFormatted"
+    [string]$searchBaseFilter = "OU=$OrganizationUnit,$domainFormatted"
 
-    [Int]$DaysInactive = 180
-    [DateTime]$Time = (Get-Date).AddDays(-($DaysInactive))  
+    $pastDateTime = (Get-Date).AddDays(-180)  
 
     # Used to check if user account is not disabled and if their last logon was no more than 180 days ago
-    $ActiveUserFilter = { LastLogonTimeStamp -GT $Time -and Enabled -EQ $True }
+    $activeUserFilter = { LastLogonTimeStamp -gt $pastDateTime -and Enabled -eq $true }
 
     # Create sub dir for specified org unit, removes whitespace from OrgUnit
-    [String]$OUExportsDir = "$PSScriptRoot\Exports\$($OrgUnit -Replace '\s', '')"
+    [string]$exportDir = "$PSScriptRoot\Exports\$($OrganizationUnit -Replace '\s', '')"
 
     # If our dir doesnt exist, create it
-    If (-Not(Test-Path -Path $OUExportsDir))
+    if (-not(Test-Path -Path $exportDir))
     { 
-        MkDir $OUExportsDir
+        MkDir $exportDir
     }
 
     # Date variable used in CSV file name
-    $FormattedDate = Get-Date -f yyyyMMddhhmm
-    $LogVer = "Log$LogVerbosity"
-    $IncludedUsers = "$(If($FilterOnlyActiveUsers){'Active'}Else{'All'})Users"
-    $CSVFile = "$OUExportsDir\$LogVer-$IncludedUsers-$FormattedDate.csv"
+    $formattedDate = Get-Date -f yyyyMMddhhmm
+    $logVer = "Log$LogVerbosity"
+    $includedUsers = "$(If($OnlyActiveUsers){'Active'}else{'All'})Users"
+    $fileCSV = "$exportDir\$logVer-$includedUsers-$formattedDate.csv"
     
     # The properties to select out of each ADUser object
-    $ExportProperties = $(CreatePropertiesSelector -PropSelector $LogVerbosity)
+    $exportProperties = $(Get-PropertiesString -PropertiesSelection $LogVerbosity)
+
+    # Scope for the search
+    $scope = $(if ($SearchSubOrgUnits) { 'Subtree' } else { 'OneLevel' })
+
+    # Filter for the search
+    $filter = $(if ($OnlyActiveUsers) { $activeUserFilter } else { '*' })
 
     # Get the users from AD and export as CSV
-    Get-ADUser -SearchBase $SearchBaseFilter -SearchScope $(If ($IncludeNestedOrgUnits) { 'Subtree' } Else { 'OneLevel' }) -Filter $(If ($FilterOnlyActiveUsers) { $ActiveUserFilter } Else { '*' }) -Properties * |
-        Select-Object $ExportProperties |
+    Get-ADUser -SearchBase $searchBaseFilter -SearchScope $scope -Filter $filter -Properties * |
+        Select-Object $exportProperties |
         Sort-Object 'Created' |
-        Export-CSV -Path $CSVFile -Encoding UTF8 -NoTypeInformation
+        Export-CSV -Path $fileCSV -Encoding UTF8 -NoTypeInformation
 }
