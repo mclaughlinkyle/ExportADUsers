@@ -12,12 +12,49 @@
 Import-Module ActiveDirectory  
 
 <#
+    .SYNOPSIS
+    Gets the lowest level org unit from a CanonicalName
+#>
+Function GetDeepestOrgUnit([String]$FullCanonicalName)
+{
+    $CNArray = $FullCanonicalName -Split '/'
+    $ArrLength = $CNArray.Length
+    $DeepestOrgUnit = -1
+
+    # Array has no elements
+    If ($ArrLength -LE 0)
+    {
+        Return $DeepestOrgUnit
+    }
+
+    # Array is large enough to check 2 indeces back
+    If ($ArrLength -GE 2)
+    {
+        # Get the element before their username (lowest org unit)
+        $DeepestOrgUnit = $CNArray[$ArrLength - 2]
+    }
+    Else
+    {
+        $DeepestOrgUnit = $CNArray[1]
+    }
+
+    Return $DeepestOrgUnit
+}
+
+<#
+    .SYNOPSIS
     Export active desired users including all properties
 
+    .PARAMS
     $OrgUnit                 - Export users from this organization unit
+
+    $IncludeNestedOrgUnits   - If $true: include users from an other org units nested within $OrgUnit
+                             - If $false: include only users from specified $OrgUnit
+
     $FilterOnlyActiveUsers   - If $true: only include 'Enabled' accounts, and accounts with a last logon less than 180 days ago
+                             - If $false: include all users
 #>
-Function ExportOUUsers([String]$OrgUnit, [Boolean]$FilterOnlyActiveUsers)
+Function ExportOUUsers([String]$OrgUnit, [Boolean]$IncludeNestedOrgUnits, [Boolean]$FilterOnlyActiveUsers)
 {
     # Base search filter, for domain and org unit
     [String]$SearchBaseFilter = "OU=$OrgUnit,DC=com,DC=org,DC=local"
@@ -45,19 +82,8 @@ Function ExportOUUsers([String]$OrgUnit, [Boolean]$FilterOnlyActiveUsers)
     
     # Get the users from AD and export as CSV
     Get-ADUser -SearchBase $SearchBaseFilter -Filter $(If ($FilterOnlyActiveUsers) { $ActiveUserFilter } Else { '*' }) -Properties * |
+        Where-Object { $IncludeNestedOrgUnits -Or $(GetDeepestOrgUnit -FullCanonicalName $_.CanonicalName) -EQ $OrgUnit } |
         Select-Object Name, SAMAccountName, Description, LastLogonDate |
         Sort-Object 'Created' |
         Export-CSV -Path $CSVFile -Encoding UTF8 -NoTypeInformation
 }
-
-<#
-    - Account properties:
-        Enabled, LockedOut, MemberOf, ObjectCategory, ObjectClass, ObjectGUID, objectSid, HomeDirectory, HomeDrive, ScriptPath
-
-    - Name / descriptor properties: 
-        CN, CanonicalName, UserPrincipalName, SAMAccountName, DistinguishedName, Name, DisplayName, GivenName, Initials, OtherName, Description, Title
-
-    - Password / logon properties:
-        PasswordExpired, PasswordNeverExpires, PasswordNotRequired, CannotChangePassword, lastLogoff, lastLogon, LastLogonDate, lastLogonTimestamp
-
-#>
