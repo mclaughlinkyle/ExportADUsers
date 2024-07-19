@@ -44,16 +44,14 @@ function Get-PropertiesString([string]$PropertiesSelection)
 
     $OrganizationUnit              - Export users from this organization unit
 
-    $SearchSubOrgUnits             - If $true: include users from an other org units nested within $OrganizationUnit
-                                   - If $false: include only users from specified $OrganizationUnit
+    $SearchSubOrgUnits             - If present: include users from an other org units nested within $OrganizationUnit
 
-    $OnlyActiveUsers               - If $true: only include 'Enabled' accounts, and accounts with a last logon less than 180 days ago
-                                   - If $false: include all users
+    $OnlyActiveUsers               - If present: only include 'Enabled' accounts, and accounts with a last logon less than 180 days ago
 
     $LogVerbosity                  - Verbosity of the exported CSV file. (how many properties are included)
                                       See Get-PropertiesString function
 #>
-function Export-ADUsersCSV([string]$ServerDomain, [string]$OrganizationUnit, [boolean]$SearchSubOrgUnits, [boolean]$OnlyActiveUsers, [string]$LogVerbosity)
+function Export-ADUsersCSV([string]$ServerDomain, [string]$OrganizationUnit, [switch]$OnlyActiveUsers, [switch]$SearchSubOrgUnits, [string]$LogVerbosity)
 {
     # Format DC text for SearchBaseFilter
     $domainArr = $ServerDomain.Split('.')
@@ -90,17 +88,17 @@ function Export-ADUsersCSV([string]$ServerDomain, [string]$OrganizationUnit, [bo
     # Date variable used in CSV file name
     $formattedDate = Get-Date -f yyyyMMddhhmm
     $logVer = "Log$LogVerbosity"
-    $includedUsers = "$(If($OnlyActiveUsers){'Active'}else{'All'})Users"
+    $includedUsers = "$(if ($OnlyActiveUsers.IsPresent) {'Active'} else {'All'})Users"
     $fileCSV = "$exportDir\$logVer-$includedUsers-$formattedDate.csv"
     
     # The properties to select out of each ADUser object
     $exportProperties = $(Get-PropertiesString -PropertiesSelection $LogVerbosity)
 
     # Scope for the search
-    $scope = $(if ($SearchSubOrgUnits) { 'Subtree' } else { 'OneLevel' })
+    $scope = $(if ($SearchSubOrgUnits.IsPresent) { 'Subtree' } else { 'OneLevel' })
 
     # Filter for the search
-    $filter = $(if ($OnlyActiveUsers) { $activeUserFilter } else { '*' })
+    $filter = $(if ($OnlyActiveUsers.IsPresent) { $activeUserFilter } else { '*' })
 
     # Get the users from AD and export as CSV
     Get-ADUser -SearchBase $searchBaseFilter -SearchScope $scope -Filter $filter -Properties * |
@@ -108,3 +106,12 @@ function Export-ADUsersCSV([string]$ServerDomain, [string]$OrganizationUnit, [bo
         Sort-Object 'Created' |
         Export-CSV -Path $fileCSV -Encoding UTF8 -NoTypeInformation
 }
+
+<#
+    Example usage (include or exclude these switches -OnlyActiveUsers -SearchSubOrgUnits based on your desired export)
+     
+    This will export users from the domain com.org.local on the windows server machine you execute this script on.
+    It will export active users (enabled accounts & last logon within 180 days ago) from the Managers organization unit 
+    and all organization units nested under Managers, while including a normal amount of information about each user
+#>   
+Export-ADUsersCSV -ServerDomain 'com.org.local' -OrganizationUnit 'Managers' -OnlyActiveUsers -SearchSubOrgUnits -LogVerbosity 'Normal'
