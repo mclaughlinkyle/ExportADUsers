@@ -9,37 +9,7 @@
 ##>
 
 # Import the AD module
-Import-Module ActiveDirectory  
-
-<#
-    .SYNOPSIS
-    Gets the lowest level org unit from a CanonicalName
-#>
-Function GetDeepestOrgUnit([String]$FullCanonicalName)
-{
-    $CNArray = $FullCanonicalName -Split '/'
-    $ArrLength = $CNArray.Length
-    $DeepestOrgUnit = -1
-
-    # Array has no elements
-    If ($ArrLength -LE 0)
-    {
-        Return $DeepestOrgUnit
-    }
-
-    # Array is large enough to check 2 indeces back
-    If ($ArrLength -GE 2)
-    {
-        # Get the element before their username (lowest org unit)
-        $DeepestOrgUnit = $CNArray[$ArrLength - 2]
-    }
-    Else
-    {
-        $DeepestOrgUnit = $CNArray[1]
-    }
-
-    Return $DeepestOrgUnit
-}
+Import-Module ActiveDirectory
 
 <#
     .SYNOPSIS
@@ -81,7 +51,7 @@ Function CreatePropertiesSelector([String]$PropSelector)
 
     .PARAMS
     $Domain                  - Domain of the organization (Ex: 'com.org.local')
-    
+
     $OrgUnit                 - Export users from this organization unit
 
     $IncludeNestedOrgUnits   - If $true: include users from an other org units nested within $OrgUnit
@@ -98,12 +68,18 @@ Function ExportOUUsers([String]$Domain, [String]$OrgUnit, [Boolean]$IncludeNeste
     # Format DC text for SearchBaseFilter
     $DomainArr = $Domain.Split('.')
     [String]$DomainFormatted = ""
-    ForEach($Sub in $DomainArr)
+    ForEach ($Sub in $DomainArr)
     {
         $DomainFormatted += "DC=$Sub,"
     }
-    $DomainFormatted = $DomainFormatted.Substring(0, $DomainFormatted.Length - 1)
 
+    # Only remove extra comma from above foreach loop if the domain was delimited. 
+    # (Example: If domain was 'com.org.local' and not just 'org')
+    If ($DomainArr.Length -GT 0) 
+    {
+        $DomainFormatted = $DomainFormatted.Substring(0, $DomainFormatted.Length - 1)
+    }
+    
     # Base search filter, for domain and org unit
     [String]$SearchBaseFilter = "OU=$OrgUnit,$DomainFormatted"
 
@@ -132,8 +108,7 @@ Function ExportOUUsers([String]$Domain, [String]$OrgUnit, [Boolean]$IncludeNeste
     $ExportProperties = $(CreatePropertiesSelector -PropSelector $LogVerbosity)
 
     # Get the users from AD and export as CSV
-    Get-ADUser -SearchBase $SearchBaseFilter -Filter $(If ($FilterOnlyActiveUsers) { $ActiveUserFilter } Else { '*' }) -Properties * |
-        Where-Object { $IncludeNestedOrgUnits -Or $(GetDeepestOrgUnit -FullCanonicalName $_.CanonicalName) -EQ $OrgUnit } |
+    Get-ADUser -SearchBase $SearchBaseFilter -SearchScope $(If ($IncludeNestedOrgUnits) { 'Subtree' } Else { 'OneLevel' }) -Filter $(If ($FilterOnlyActiveUsers) { $ActiveUserFilter } Else { '*' }) -Properties * |
         Select-Object $ExportProperties |
         Sort-Object 'Created' |
         Export-CSV -Path $CSVFile -Encoding UTF8 -NoTypeInformation
