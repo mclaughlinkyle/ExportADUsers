@@ -5,7 +5,7 @@
 `-ServerDomain`: The domain of the Windows Server.<br>
 `-OrganizationUnit`: The organization unit to export accounts from.<br>
 `-OnlyActiveUsers`: Only include accounts that are enabled and have a last logon within 180 days ago.<br>
-`-SearchSubOrgUnits`: Search not only the passed organization unit parameter but also any nested units within it.<br>
+`-SearchSubOrgUnits`: Search not only the passed organization unit but also any nested units within it.<br>
 `-LogVerbosity`: Level of information about user accounts to be included in the exported CSV file.<br>
 &emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;(read more in the documentation of the script)
 
