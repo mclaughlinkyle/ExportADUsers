@@ -1,6 +1,7 @@
 
 <##
  ##  Author: Kyle McLaughlin
+ ##  GitHub: github.com/mclaughlinkyle/ExportADUsers
  ##
  ##  Export data for user accounts from Active Directory.
  ##     Exports the data as a CSV file, for easy use in spreadsheet editors or for other data processing.
